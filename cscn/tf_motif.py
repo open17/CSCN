@@ -4,10 +4,10 @@ import re
 import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, Iterable, List, Mapping, Optional, Sequence, Set
+from typing import Dict, Iterable, List, Mapping, Optional, Sequence, Set, TYPE_CHECKING
 
-from Bio import motifs
-from pyfaidx import Fasta
+if TYPE_CHECKING:  # imported lazily at call sites so the core pipeline runs without these extras
+    from pyfaidx import Fasta
 
 
 JASPAR_RELEASE = "2026"
@@ -116,6 +116,8 @@ def load_jaspar_motif_records(
         symbol_lookup = {canonical_gene_token(symbol): canonical_gene_token(symbol) for symbol in tf_symbols if canonical_gene_token(symbol)}
         if not symbol_lookup:
             return {}
+    from Bio import motifs  # optional dependency: only needed for the TF-motif prior
+
     records_by_symbol: Dict[str, List[MotifRecord]] = {}
     with Path(jaspar_path).open("r", encoding="utf-8") as handle:
         for motif in motifs.parse(handle, "jaspar"):
@@ -150,7 +152,7 @@ def load_jaspar_motif_records(
     return {symbol: rows for symbol, rows in records_by_symbol.items() if rows}
 
 
-def _resolve_fasta_chrom(chrom: str, fasta: Fasta) -> str:
+def _resolve_fasta_chrom(chrom: str, fasta: "Fasta") -> str:
     if chrom in fasta:
         return chrom
     if chrom.startswith("chr") and chrom[3:] in fasta:
@@ -165,6 +167,8 @@ def load_peak_sequences(
     genome_fasta: Path,
     peak_intervals: Mapping[str, object],
 ) -> Dict[str, str]:
+    from pyfaidx import Fasta  # optional dependency: only needed for the TF-motif prior
+
     fasta = Fasta(str(genome_fasta), as_raw=True, sequence_always_upper=True)
     sequences: Dict[str, str] = {}
     try:

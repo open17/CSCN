@@ -1,0 +1,9 @@
+# Core runtime dependencies for CSCN (preprocess / run / ckm).
+# For the optional TF-motif prior workflow, also install: biopython, pyfaidx
+numpy>=1.21
+pandas>=1.3
+scipy>=1.7
+scikit-learn>=1.0
+networkx>=2.6
+h5py>=3.1
+bitarray>=2.5
