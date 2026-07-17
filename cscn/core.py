@@ -329,6 +329,8 @@ class CSCN:
         self.tf_local_candidate_pairs: Set[Tuple[str, str]] = set()
         self.tf_direct_supported_pairs: Set[Tuple[str, str]] = set()
         self.tf_prior_weight_map: Dict[Tuple[str, str], float] = {}
+        self.tf_prior_cell_activity_profiles: Dict[Tuple[str, str], np.ndarray] = {}
+        self.tf_cell_activity_prior_pair_count = 0
         self.atac_ci_peak_access_by_name: Dict[str, np.ndarray] = {}
         self.atac_ci_target_peaks_by_id: Dict[int, List[str]] = {}
         self.atac_ci_target_peak_weights_by_id: Dict[int, Dict[str, float]] = {}
@@ -1145,7 +1147,31 @@ class CSCN:
         return str(int(gene_id))
 
     def _get_tf_skeleton_weight_map(self, key_cell_idx: int) -> Mapping[Tuple[str, str], float]:
-        return self.tf_prior_weight_map
+        if not self.tf_prior_cell_activity_profiles:
+            return self.tf_prior_weight_map
+        cell_idx = int(key_cell_idx)
+        return {
+            pair: float(weight)
+            * (
+                float(self.tf_prior_cell_activity_profiles[pair][cell_idx])
+                if pair in self.tf_prior_cell_activity_profiles
+                else 1.0
+            )
+            for pair, weight in self.tf_prior_weight_map.items()
+        }
+
+    def _zero_preserving_rank_profile(self, column_name: str) -> np.ndarray:
+        """Return an empirical activity profile without activating zero input."""
+        if self.df is None or str(column_name) not in self.df.columns:
+            raise ValueError(f"cell_activity_source {column_name!r} is not a CSCN node")
+        values = self.df[str(column_name)].to_numpy(dtype=float)
+        profile = np.zeros(values.shape[0], dtype=float)
+        positive = np.isfinite(values) & (values > 0.0)
+        if not np.any(positive):
+            return profile
+        ranks = pd.Series(values[positive]).rank(method="average").to_numpy(dtype=float)
+        profile[positive] = ranks / float(np.sum(positive))
+        return profile
 
     def _tf_skeleton_pair_strength(self, x_id: int, y_id: int, key_cell_idx: int) -> float:
         if not self._tf_skeleton_prior_enabled():
@@ -1240,6 +1266,8 @@ class CSCN:
         self.tf_local_candidate_pairs = set()
         self.tf_direct_supported_pairs = set()
         self.tf_prior_weight_map = {}
+        self.tf_prior_cell_activity_profiles = {}
+        self.tf_cell_activity_prior_pair_count = 0
         self.tf_local_candidate_edge_count = 0
         self.tf_local_target_count = 0
         self.tf_direct_edge_count = 0
@@ -1272,6 +1300,7 @@ class CSCN:
         shortlist: Set[Tuple[str, str]] = set()
         direct_pairs: Set[Tuple[str, str]] = set()
         weight_map: Dict[Tuple[str, str], float] = {}
+        activity_profiles: Dict[Tuple[str, str], np.ndarray] = {}
         targets_with_hits: Set[str] = set()
         tf_columns = sorted(prior_df["tf_module_column"].drop_duplicates().astype(str).tolist())
         for target, rows in prior_df.groupby("gene_module_column", sort=False):
@@ -1286,10 +1315,19 @@ class CSCN:
                 shortlist.add(pair)
                 direct_pairs.add(pair)
                 weight_map[pair] = max(score, weight_map.get(pair, 0.0))
+                activity_source = getattr(row, "cell_activity_source", "")
+                if pd.notna(activity_source) and str(activity_source).strip():
+                    profile = self._zero_preserving_rank_profile(str(activity_source).strip())
+                    if pair in activity_profiles:
+                        activity_profiles[pair] = np.maximum(activity_profiles[pair], profile)
+                    else:
+                        activity_profiles[pair] = profile
         self.tf_prior_active_tf_count = len(tf_columns)
         self.tf_local_candidate_pairs = shortlist
         self.tf_direct_supported_pairs = direct_pairs
         self.tf_prior_weight_map = weight_map
+        self.tf_prior_cell_activity_profiles = activity_profiles
+        self.tf_cell_activity_prior_pair_count = len(activity_profiles)
         self.tf_local_candidate_edge_count = len(shortlist)
         self.tf_local_target_count = len(targets_with_hits)
         self.tf_prior_allowed_edge_count = len(shortlist)

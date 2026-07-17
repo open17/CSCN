@@ -146,6 +146,7 @@ def _build_manifest(module_name: str, expression_df: pd.DataFrame, config: RunCo
         'tf_skeleton_prior_pair_count': int(getattr(cscn, 'tf_skeleton_prior_pair_count', 0) or 0),
         'tf_skeleton_ci_query_count': int(getattr(cscn, 'tf_skeleton_ci_query_count', 0) or 0),
         'tf_skeleton_rescued_ci_count': int(getattr(cscn, 'tf_skeleton_rescued_ci_count', 0) or 0),
+        'tf_cell_activity_prior_pair_count': int(getattr(cscn, 'tf_cell_activity_prior_pair_count', 0) or 0),
         'external_prior_allowed_edge_count': int(getattr(cscn, 'external_prior_allowed_edge_count', 0) or 0),
         'combined_prior_allowed_edge_count': int(getattr(cscn, 'combined_prior_allowed_edge_count', 0) or 0),
         'external_skeleton_ci_query_count': int(getattr(cscn, 'external_skeleton_ci_query_count', 0) or 0),
@@ -485,7 +486,12 @@ def run_module_csv(csv_path: Path, result_root: Path, config: RunConfig) -> RunR
     module_name = csv_path.stem
     allowed_pairs = None
     effective_tf_prior_mode = _resolve_tf_prior_mode(config)
-    if config.use_multiome_skeleton_prior and effective_tf_prior_mode == 'none':
+    # The multiome skeleton and TF-target prior encode different evidence:
+    # observed RNA/ATAC module adjacency versus directed motif support.  They
+    # must remain composable.  Previously selecting ``atac_prior_cscn``
+    # silently disabled the multiome skeleton, despite both options being
+    # enabled in RunConfig.
+    if config.use_multiome_skeleton_prior:
         prior_path = _default_module_prior_path(csv_path)
         if prior_path.exists():
             allowed_pairs = _load_allowed_pairs(prior_path)
